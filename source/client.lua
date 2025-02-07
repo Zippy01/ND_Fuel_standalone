@@ -52,10 +52,10 @@ end
 
 -- Setting the fuel to the vehicle entity using decor.
 function SetFuel(vehicle, fuel)
-	if type(fuel) == "number" and fuel >= 0 and fuel <= 100 then
-		SetVehicleFuelLevel(vehicle, fuel)
-		DecorSetFloat(vehicle, FUEL_DECOR, GetVehicleFuelLevel(vehicle))
-	end
+    if type(fuel) == "number" and fuel >= 0 and fuel <= 100 then
+        SetVehicleFuelLevel(vehicle, fuel + 0.0)
+        DecorSetFloat(vehicle, FUEL_DECOR, GetVehicleFuelLevel(vehicle))
+    end
 end
 
 -- returns pump position if a player is near it.
@@ -146,14 +146,14 @@ function grabNozzleFromPump()
     nozzleInVehicle = false
     vehicleFueling = false
     usedPump = pumpHandle
+    local initialFuel = GetFuel(vehicleFueling)
+    SendNUIMessage({
+        type = "update",
+        fuelTank = string.format("%.2f", initialFuel)
+    })
     SendNUIMessage({
         type = "status",
         status = true
-    })
-    SendNUIMessage({
-        type = "update",
-        fuelCost = "0.00",
-        fuelTank = "0.00"
     })
 end
 
@@ -223,62 +223,33 @@ CreateThread(function()
 end)
 
 local function vehicleIsFueling()
-    local classMultiplier = config.vehicleClasses[GetVehicleClass(vehicleFueling)]
-    local cost = 0
-    local adjustedFuel = nil
-    
+    local fuelRate = 0.5 -- Increment rate per update cycle, adjust as needed
     while vehicleFueling do
-        local fuel = GetFuel(vehicleFueling)
-        if not DoesEntityExist(vehicleFueling) then
-            dropNozzle()
+        local currentFuel = GetFuel(vehicleFueling)
+        local newFuelLevel = currentFuel + fuelRate
 
-            vehicleFueling = false
-            break
-        end
-        
-        local newCost = ((2.0 / classMultiplier) * config.fuelCostMultiplier) - math.random(0, 100) / 100
-        local player = exports["ND_Core"]:getPlayer()
-        
-        if (player and player.bank or 0) < cost then
-            SendNUIMessage({
-                type = "warn"
-            })
-
-            vehicleFueling = false
-            break
+        if newFuelLevel > 100 then
+            newFuelLevel = 100 -- Cap the fuel at 100%
         end
 
-        fuel = fuel + classMultiplier*50
-        if fuel < 100 then
-            cost = cost + newCost
-        end
+        SetFuel(vehicleFueling, newFuelLevel) -- Set the new fuel level in the vehicle data
 
-        if fuel > 100 or fuel == 100 then
-            fuel = 100.0
-            SetFuel(vehicleFueling, fuel)
-            SendNUIMessage({
-                type = "update",
-                fuelCost = string.format("%.2f", cost),
-                fuelTank = string.format("%.2f", fuel)
-            })
-
-            vehicleFueling = false
-            break
-        end
-
-        SetFuel(vehicleFueling, fuel)
+        -- Immediately update the UI after setting the fuel
         SendNUIMessage({
             type = "update",
-            fuelCost = string.format("%.2f", cost),
-            fuelTank = string.format("%.2f", fuel)
+            fuelTank = string.format("%.2f", newFuelLevel)
         })
-        Wait(600)
-    end
-    if cost ~= 0 then
-        TriggerServerEvent("ND_Fuel:pay", cost)
-        cost = 0
+
+        if newFuelLevel >= 100 then
+            vehicleFueling = false
+            break -- Stop fueling if the tank is full
+        end
+
+        Wait(500) -- Delay for the next update, adjust as needed for realistic fueling speed
     end
 end
+
+
 
 -- Refuel the vehicle.
 CreateThread(function()
@@ -286,36 +257,6 @@ CreateThread(function()
         Wait(2000)
         if vehicleFueling then
             vehicleIsFueling()
-        end
-    end
-end)
-
--- pumping fuel on the groud.
-CreateThread(function()
-    while true do
-        Wait(500)
-        if wastingFuel then
-            local cost = 0
-            while wastingFuel do
-                cost = cost + (2.0 * config.fuelCostMultiplier) - math.random(0, 100) / 100
-                SendNUIMessage({
-                    type = "update",
-                    fuelCost = string.format("%.2f", cost),
-                    fuelTank = "0.0"
-                })
-
-                local player = exports["ND_Core"]:getPlayer()
-                if (player and player.bank or 0) < cost then
-                    SendNUIMessage({
-                        type = "warn"
-                    })
-                end
-
-                Wait(800)
-            end
-            if cost ~= 0 then
-                TriggerServerEvent("ND_Fuel:pay", cost)
-            end
         end
     end
 end)
